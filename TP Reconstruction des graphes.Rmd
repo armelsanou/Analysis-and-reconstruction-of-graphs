@@ -1,0 +1,575 @@
+---
+title: "TP RECONSTRUCTION DES GRAPHES"
+output: html_notebook
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+a.  Install and load the following R packages: bnlearn, igraph, pcalg
+    and miic
+
+```{r}
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("graph")
+
+if (!require("Bioconductor", quietly = TRUE))
+  install.packages("Bioconductor")
+BiocManager::install("RBGL")
+BiocManager::install("Rgraphviz")
+```
+
+```{r}
+library(tidyverse)
+library(corrr)
+library(igraph)
+library(ggraph)
+library(bnlearn)
+library(pcalg)
+library(miic)
+library(Rgraphviz)
+```
+
+b.  Create the insurance ground truth model from the model string (see
+    insurance help). (0.5 points)
+
+```{r}
+data("insurance")
+help("insurance")
+
+modelstring = paste0("[Age][Mileage][SocioEcon|Age][GoodStudent|Age:SocioEcon]",
+                     "[RiskAversion|Age:SocioEcon][OtherCar|SocioEcon][VehicleYear|SocioEcon:RiskAversion]",
+                     "[MakeModel|SocioEcon:RiskAversion][SeniorTrain|Age:RiskAversion]",
+                     "[HomeBase|SocioEcon:RiskAversion][AntiTheft|SocioEcon:RiskAversion]",
+                     "[RuggedAuto|VehicleYear:MakeModel][Antilock|VehicleYear:MakeModel]",
+                     "[DrivingSkill|Age:SeniorTrain][CarValue|VehicleYear:MakeModel:Mileage]",
+                     "[Airbag|VehicleYear:MakeModel][DrivQuality|RiskAversion:DrivingSkill]",
+                     "[Theft|CarValue:HomeBase:AntiTheft][Cushioning|RuggedAuto:Airbag]",
+                     "[DrivHist|RiskAversion:DrivingSkill][Accident|DrivQuality:Mileage:Antilock]",
+                     "[ThisCarDam|RuggedAuto:Accident][OtherCarCost|RuggedAuto:Accident]",
+                     "[MedCost|Age:Accident:Cushioning][ILiCost|Accident]",
+                     "[ThisCarCost|ThisCarDam:Theft:CarValue][PropCost|ThisCarCost:OtherCarCost]")
+
+data = model2network(modelstring)
+```
+
+c.  Check the class of the returned object and see the content. (0.5
+    points)
+
+```{r}
+data
+class(data)
+```
+
+La fonction class() nous donne le type d'un objet passé en paramètre. le
+type de l'objet data est "bn" qui est un modèle probabiliste qui permet
+de représenter les relations causales entre différentes variables
+aléatoires.
+
+d.  Get the adjacency matrix (bnlearn::amat). (0.5 points)
+
+```{r}
+mat <- amat(data) #matrice d'adjacence
+mat
+```
+
+La matrice d'adjacence permet représenter sous forme matricielle la
+relation entre les differents noeuds du graphe.Lorsqu'on a 1, cela
+signifie qu'il y a un lien entre les deux variables et 0 sinon!
+
+e.  Build a directed igraph network from the adjacency matrix and
+    propose a (nice! eg., color the edge, the vertices etc...) plot.
+    (0.5 points)
+
+```{r}
+#Create igraph from graph
+myIgraph <- igraph::graph_from_adjacency_matrix(mat, mode="directed")
+plot(myIgraph)
+```
+
+```{r}
+
+tidy_cors <- mat %>% 
+ correlate() %>% 
+ stretch()
+
+  
+graph_cors <- tidy_cors %>%
+  filter(abs(r) > .1) %>%
+  graph_from_data_frame(directed = FALSE)
+
+
+# Plot with ggraph
+ggraph(graph_cors) +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name))
+
+# Make a fancy plot
+# 1 --> improve edges display
+ggraph(graph_cors) +
+  geom_edge_link(aes(edge_alpha = abs(r), edge_width = abs(r), color = r)) +
+  geom_node_point() +
+  geom_node_text(aes(label = name))
+
+# 2 --> reduce side legend
+ggraph(graph_cors) +
+  geom_edge_link(aes(edge_alpha = abs(r), edge_width = abs(r), color = r)) +
+  guides(edge_alpha = "none", edge_width = "none") +
+  geom_node_point() +
+  geom_node_text(aes(label = name))
+
+# 3 --> Improve the color gradient
+ggraph(graph_cors) +
+  geom_edge_link(aes(edge_alpha = abs(r), edge_width = abs(r), color = r)) +
+  guides(edge_alpha = "none", edge_width = "none") +
+  scale_edge_colour_gradientn(limits = c(-1, 1), colors = c("firebrick2", "dodgerblue2"))+
+  geom_node_point() +
+  geom_node_text(aes(label = name))
+
+# 4 --> Improve node display and associated text
+ggraph(graph_cors) +
+  geom_edge_link(aes(edge_alpha = abs(r), edge_width = abs(r), color = r)) +
+  guides(edge_alpha = "none", edge_width = "none") +
+  scale_edge_colour_gradientn(limits = c(-1, 1), colors = c("firebrick2", "dodgerblue2"))+
+  geom_node_point(color = "green", size = 5) +
+  geom_node_text(aes(label = name), repel = TRUE)
+
+#5 --> Remove background grid and set title
+ggraph(graph_cors) +
+  geom_edge_link(aes(edge_alpha = abs(r), edge_width = abs(r), color = r)) +
+  guides(edge_alpha = "none", edge_width = "none") +
+  scale_edge_colour_gradientn(limits = c(-1, 1), colors = c("firebrick2", "dodgerblue2"))+
+  geom_node_point(color = "green", size = 5) +
+  geom_node_text(aes(label = name), repel = TRUE) +
+  theme_graph() +
+ labs(title = "Correlations between insurance variables (abs min = 0.1)")
+```
+
+Sur ce graphe, on remarqu'il y a des variables qui apportent la même
+informations (celles qui sont fortement correlées) deplus, le graphe est
+divisé en deux c'est à dire qu'il y a globalement deux familles de
+vatiables.
+
+a.  Load the insurance data from the bnlearn package.
+
+```{r}
+data("insurance")
+```
+
+b.  Reconstruct the insurance network using the hill-climbing approach
+    (bnlearn::hc). Check the class of the returned object and see the
+    content. (0.5 points)
+
+```{r}
+#Call to hill climbing
+myHc <- bnlearn::hc(insurance)
+class(myHc)
+myHc
+```
+
+c.  Get the adjacency matrix (bnlearn::amat). (0.5 points)
+
+```{r}
+#get adj mat from HC graph
+myHcAdj <- amat(myHc)
+```
+
+d.  Build a directed igraph network from the adjacency matrix
+
+```{r}
+#Create igraph from graph
+myIgraph <- igraph::graph_from_adjacency_matrix(myHcAdj, mode="directed")
+#plot(myIgraph)
+```
+
+and propose a (nice!) plot. (1 point)
+
+```{r}
+
+tidy_cors <- myHcAdj %>% 
+ correlate() %>% 
+ stretch()
+
+  
+graph_cors <- tidy_cors %>%
+  filter(abs(r) > .1) %>%
+  graph_from_data_frame(directed = FALSE)
+
+
+# Plot with ggraph
+ggraph(graph_cors) +
+  geom_edge_link() +
+  geom_node_point() +
+  geom_node_text(aes(label = name))
+
+# Make a fancy plot
+# 1 --> improve edges display
+ggraph(graph_cors) +
+  geom_edge_link(aes(edge_alpha = abs(r), edge_width = abs(r), color = r)) +
+  geom_node_point() +
+  geom_node_text(aes(label = name))
+
+# 2 --> reduce side legend
+ggraph(graph_cors) +
+  geom_edge_link(aes(edge_alpha = abs(r), edge_width = abs(r), color = r)) +
+  guides(edge_alpha = "none", edge_width = "none") +
+  geom_node_point() +
+  geom_node_text(aes(label = name))
+
+# 3 --> Improve the color gradient
+ggraph(graph_cors) +
+  geom_edge_link(aes(edge_alpha = abs(r), edge_width = abs(r), color = r)) +
+  guides(edge_alpha = "none", edge_width = "none") +
+  scale_edge_colour_gradientn(limits = c(-1, 1), colors = c("firebrick2", "dodgerblue2"))+
+  geom_node_point() +
+  geom_node_text(aes(label = name))
+
+# 4 --> Improve node display and associated text
+ggraph(graph_cors) +
+  geom_edge_link(aes(edge_alpha = abs(r), edge_width = abs(r), color = r)) +
+  guides(edge_alpha = "none", edge_width = "none") +
+  scale_edge_colour_gradientn(limits = c(-1, 1), colors = c("firebrick2", "dodgerblue2"))+
+  geom_node_point(color = "green", size = 5) +
+  geom_node_text(aes(label = name), repel = TRUE)
+
+#5 --> Remove background grid and set title
+ggraph(graph_cors) +
+  geom_edge_link(aes(edge_alpha = abs(r), edge_width = abs(r), color = r)) +
+  guides(edge_alpha = "none", edge_width = "none") +
+  scale_edge_colour_gradientn(limits = c(-1, 1), colors = c("firebrick2", "dodgerblue2"))+
+  geom_node_point(color = "green", size = 5) +
+  geom_node_text(aes(label = name), repel = TRUE) +
+  theme_graph() +
+ labs(title = "plot directed igraph network from the adjacency matrix (abs min = 0.1)")
+```
+
+e.  Get the number of true positive (TP), false positive (FP) and false
+    negative (FN) using the bnlearn::compare function. Compute
+    Precision, Recall and Fscore. (1 point)
+
+```{r}
+true_model <- data
+
+# Learn the structure of the estimated network from the data
+estimated_model <- myHc
+
+# Compare the true and estimated networks
+comparison <- compare(true_model, estimated_model)
+```
+
+```{r}
+# Extract the number of true positives (TP)
+tp <- comparison$tp
+
+# Extract the number of false positives (FP)
+fp <- comparison$fp
+
+# Extract the number of false negatives (FN)
+fn <- comparison$fn
+
+# Compute precision
+precision <- tp / (tp + fp)
+
+# Compute recall
+recall <- tp / (tp + fn)
+
+# Compute F-score
+fscore <- 2 * (precision * recall) / (precision + recall)
+
+print(precision)
+print(recall)
+print(fscore)
+```
+
+Lorsque nous prenons en compte l'orientation, notre modèle a une précision de 0.52 en d'autres termes, lorsqu'il prédit la relation entre deux noeuds elle est correcte dans 52% des cas.
+
+Essayons de faire une comparaison sans tenir compte de la direction (on s'interesse uniquement aux squelettes). 
+
+```{r}
+# Compare the true and estimated networks
+comparison <- compare(bnlearn::skeleton(true_model), bnlearn::skeleton(estimated_model))
+```
+
+```{r}
+# Extract the number of true positives (TP)
+tp <- comparison$tp
+
+# Extract the number of false positives (FP)
+fp <- comparison$fp
+
+# Extract the number of false negatives (FN)
+fn <- comparison$fn
+
+# Compute precision
+precision <- tp / (tp + fp)
+
+# Compute recall
+recall <- tp / (tp + fn)
+
+# Compute F-score
+fscore <- 2 * (precision * recall) / (precision + recall)
+
+print(precision)
+print(recall)
+print(fscore)
+
+```
+Lorsqu'on s'interesse uniquement aux squelettes, les résultats sont meilleurs: on peut dire que l'orientation influence la prédiction.
+
+
+f.  Highlight the FP edges in your reconstructed network with a
+    particular color. (1 point)
+```{r}
+graphviz.compare(bnlearn::skeleton(data),bnlearn::skeleton(myHc), layout = "dot", shape = "rectangle", main = NULL,
+                 sub = NULL, diff = "from-first", diff.args = list(fp.col = "red", fp.lty = "twodash", fp.lwd = 2, fn.col = "green", fn.lty = "solid"))
+```
+
+
+la couleur rouge représente les faux positifs nous l'avons spécifié avec l'instruction fp.col = "red" et la couleur verte représente les faux négatifs.
+La méthode bnlearn::skeleton() permet de retirer les directions sur les graphes.
+
+
+3. Constraint-based method (PC) (5 points)
+
+
+a. Reconstruct the insurance network using the PC approach (pcalg::pc) using the
+disCItest conditional independence test. You will need to perform the following
+transformations:
+
+```{r}
+# Convert data to numeric
+data_numeric <- data.matrix(insurance)
+
+#Make the categories start from 0.
+data_numeric <- data_numeric - 1
+
+#Compute the number of levels for each variable
+levels <- sapply(insurance, function(x) length(unique(x)))
+levels
+
+
+# Prepare the suffStat object
+suffStat <- list(dm= data_numeric, n = nrow(data_numeric), levels = levels, adaptDF = FALSE)
+
+
+pc.B <- pc(suffStat, indepTest = disCItest, alpha = 0.01, labels = colnames(insurance), verbose = TRUE)
+```
+
+
+
+b. Get the adjacency matrix (bnlearn::amat). (0.5 points)
+```{r}
+adjPc <- amat(as.bn(pc.B))
+```
+
+
+
+c. Build a directed igraph network from the adjacency matrix and propose a (nice!)
+plot. (1 point)
+
+```{r}
+graph_pc <- graph_from_adjacency_matrix(adjPc,
+                                            diag = FALSE,
+                                            weight = TRUE,
+                                            mode = "directed")
+graphviz.plot(as.bn(pc.B), shape = "ellipse", layout = "twopi")
+```
+Nous n'avons pas fini d'éxécuter ce bout de code du au temps pris par l'algorithme Pc qui a tourné plus de 30 minutes sans toute fois se terminer.
+
+
+
+
+d. Get the number of true positive (TP), false positive (FP) and false negative (FN)
+using the bnlearn::compare function. Compute Precision, Recall and Fscore. (1
+point)
+
+```{r}
+comparaison <- bnlearn::compare(bnlearn::skeleton(dag),bnlearn::skeleton(as.bn(pc.B)))
+
+precision <- comparaison$tp/(comparaison$tp+comparaison$fp)
+recall <- comparaison$tp/(comparaison$tp+comparaison$fn)
+fscore <- 2*precision*recall/(precision+recall)
+print(precision)
+print(recall)
+print(fscore)
+comparaison$tp
+comparaison$fp
+comparaison$fn
+```
+
+
+
+e. Highlight the FP edges in your reconstructed network. (1 point)
+```{r}
+graphviz.compare(data, pc.B, layout = "dot", shape = "rectangle", main = NULL,
+                 sub = NULL, diff = "from-first", diff.args = list(fp.col = "red", fp.lty = "twodash", fp.lwd = 2, fn.col = "green", fn.lty = "solid"))
+```
+
+
+4. Local search method (aracne) (4 points)
+
+
+a. Reconstruct the insurance network using the PC approach (bnlearn::aracne).
+(0.5 points)
+```{r}
+myArac <- bnlearn::aracne(insurance)
+class(myArac)
+myArac
+```
+
+
+b. Get the adjacency matrix (bnlearn::amat). (0.5 points)
+```{r}
+myAcAdj <- bnlearn::amat(myArac)
+```
+
+c. Build a directed igraph network from the adjacency matrix and propose a (nice!)
+plot. (1 point)
+```{r}
+graph_aracne <- graph_from_adjacency_matrix(myAcAdj,
+                                                diag = FALSE,
+                                                weight = TRUE,
+                                                mode = "directed")
+
+plot(graph_aracne, vertex.size=4, vertex.label.color = "black", vertex.label.cex=1.1, vertex.color = "red",vertex.label.dist=1,edge.arrow.size = 1
+     ,edge.curved = 1, edge.color = "blue", edge.width = E(graph_aracne)$weight*2)
+
+graphviz.plot(myArac, shape = "ellipse", layout = "twopi")
+
+```
+
+
+d. Get the number of true positive (TP), false positive (FP) and false negative (FN)
+using the bnlearn::compare function. Compute Precision, Recall and Fscore. (1
+point)
+
+Nous procédons en deux étapes, premièrement nous allons nous intéresser aux résultats obtenus en tenant compte des directions et ensuite nous allons faire abstraction des directions et commenter les résultats.
+
+1) Avec direction
+```{r}
+ac_comp <- bnlearn::compare(data,myArac)
+ac_comp
+```
+```{r}
+precision <- ac_comp$tp/(ac_comp$tp+ac_comp$fp)
+recall <- ac_comp$tp/(ac_comp$tp+ac_comp$fn)
+fscore <- 2*precision*recall/(precision+recall)
+print(precision)
+print(recall)
+print(fscore)
+```
+Nous obtenons que des 0 parce que aracne n'a pas d'orientation or nos données sont orientées du coup, pour avoir une bonne précision nous devons enlever l'orientation sur nos données originales comme suit:
+```{r}
+ac_comp <- bnlearn::compare(bnlearn::skeleton(data),myArac)
+ac_comp
+```
+
+```{r}
+precision <- ac_comp$tp/(ac_comp$tp+ac_comp$fp)
+recall <- ac_comp$tp/(ac_comp$tp+ac_comp$fn)
+fscore <- 2*precision*recall/(precision+recall)
+print(precision)
+print(recall)
+print(fscore)
+```
+
+On peut bien constater qu'après avoir retiré l'orientation, on a obtenu de très bon résultats.
+
+
+e. Highlight the FP edges in your reconstructed network. (1 point)
+```{r}
+graphviz.compare(bnlearn::skeleton(data),myArac, layout = "dot", shape = "rectangle", main = NULL, sub = NULL, diff = "from-first", diff.args = list(fp.col = "red", fp.lty = "twodash", fp.lwd = 2, fn.col = "green", fn.lty = "solid"))
+```
+Comme on peut le voir sur le graphe il y a uniquement 2 faux positifs.
+
+
+
+Problématique II (5 points)
+
+
+From the package MIIC, load the cosmicCancer data using the function data().
+Explore the dataset content, variables and dimensions. (NB: The ’Ploidy’ variable
+may be interpreted as ’integer’. If necessary, convert this column into factor type.)
+
+```{r}
+# Load the cosmicCancer data
+data("cosmicCancer")
+
+# Explore the dataset content
+head(cosmicCancer)
+
+# Explore the variables
+names(cosmicCancer)
+
+# Explore the dimensions
+dim(cosmicCancer)
+
+# Convert Ploidy variable to factor type if necessary
+if(is.integer(cosmicCancer$Ploidy)){
+  cosmicCancer$Ploidy <- as.factor(cosmicCancer$Ploidy)
+}
+
+```
+
+
+2. Explain the arguments confidenceShuffle and confidenceThreshold. Get sev-
+eral networks with different values for these arguments.
+
+L'argument n_shuffles représente le nombre de mélanges de l'ensemble de données d'origine afin d'évaluer le rapport de confiance spécifique aux arêtes de tous les arêtes inférés.
+
+
+L'argument conf_threshold représente le seuil utilisé pour filtrer les arêtes les moins probables suivant l'étape squelette.
+
+
+
+3. Convert the MIIC network to an igraph object and plot the result. Some variables
+can have 0 degree. 
+```{r}
+miic <- miic(cosmicCancer, n_shuffles = 50, conf_threshold = 0.01)
+
+graph_miic <- graph_from_adjacency_matrix(miic$adj_matrix)
+graph_miic <- delete.vertices(graph_miic, which(igraph::degree(graph_miic) == 0))
+```
+
+```{r}
+# Assign different colors to the nodes based on their type
+V(graph_miic)$color[grep("[a-z]", V(graph_miic)$name)] <- "yellow"
+V(graph_miic)$color[grep("[A-Z]", V(graph_miic)$name)] <- "green"
+V(graph_miic)$color[grep("Ploidy", V(graph_miic)$name)] <- "purple"
+```
+
+
+```{r}
+plot(graph_miic,
+  vertex.size = 19,
+  vertex.label.cex = 1.5,
+  vertex.color = "purple",
+  edge.color = "gray",
+  edge.arrow.size = 0.5,
+  layout = layout_with_kk)
+```
+```{r}
+nodes_to_keep <- V(g)$name[igraph::degree(g) > 0]
+nodes_to_keep
+```
+```{r}
+#installer et charger qgraph
+#install.packages("qgraph")
+library(qgraph)
+#mettre des couleurs différentes pour les gènes mutés, surexprimés/sous-exprimés et Ploidy
+V(graph_miic)$color <- ifelse(grepl("[a-z]", V(graph_miic)$name), "blue",
+                            ifelse(grepl("[A-Z]", V(graph_miic)$name), "green", "red"))
+#utiliser la fonction qgraph.layout.fruchtermanreingold pour la disposition du graphe
+#qgraph.layout.fruchtermanreingold(g_subset)
+#dessiner le graphe
+plot(graph_miic,
+  vertex.size = 19,
+  vertex.label.cex = 1.5,
+  vertex.color = V(graph_miic)$color,
+  edge.color = "red",
+  edge.arrow.size = 1)
+```
+
+
